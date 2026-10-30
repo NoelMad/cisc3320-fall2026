@@ -130,36 +130,40 @@ def handle_builtin(tokens, jobs):
     # 5. kill
     elif command == "kill":
         if len(tokens) < 2:
-            print("kill: usage: kill <job_id or pid>")
+            print("kill: usage: kill <job_id>")
             return
 
         target = tokens[1]
         if target.startswith("%"):
             target = target[1:]
 
-        target_pid = None
-        matched_job_id = None
+        if not target.isdigit():
+            print(f"kill: invalid job id: {tokens[1]}")
+            return
 
-        if target.isdigit():
-            val = int(target)
-            if val in jobs:
-                matched_job_id = val
-                target_pid = jobs[val].pid
-            else:
-                target_pid = val
+        job_id = int(target)
+        if job_id not in jobs:
+            print(f"kill: %{job_id}: no such job")
+            return
 
-        if target_pid:
+        job_obj = jobs[job_id]
+        target_pid = job_obj.pid
+
+        try:
+            os.kill(target_pid, signal.SIGTERM)
+            print(f"[{job_id}] Terminated {job_obj.command}")
+            del jobs[job_id]
+            # Reap the killed process right away
             try:
-                os.kill(target_pid, signal.SIGTERM)
-                if matched_job_id is not None:
-                    print(f"[{matched_job_id}] Terminated {jobs[matched_job_id].command}")
-                    del jobs[matched_job_id]
-                else:
-                    print(f"[{target_pid}] Terminated")
-            except ProcessLookupError:
-                print(f"kill: ({target_pid}) - No such process")
-            except Exception as e:
-                print(f"kill error: {e}")
+                os.waitpid(target_pid, 0)
+            except ChildProcessError:
+                pass
+        except ProcessLookupError:
+            print(f"kill: ({target_pid}) - No such process")
+            if job_id in jobs:
+                del jobs[job_id]
+        except Exception as e:
+            print(f"kill error: {e}")
 
 def run_external_command(tokens, is_background, jobs, next_job_id):
     """Forks a process and saves a Job object into the jobs dictionary."""
@@ -174,10 +178,10 @@ def run_external_command(tokens, is_background, jobs, next_job_id):
                 os.execvp(tokens[0], tokens)
             except FileNotFoundError:
                 print(f"myshell: command not found: {tokens[0]}")
-                sys.exit(1)
+                os._exit(1)
             except Exception as e:
                 print(f"myshell: execution error: {e}")
-                sys.exit(1)
+                os._exit(1)
 
         elif pid > 0:
             # Parent process
@@ -202,7 +206,7 @@ def run_external_command(tokens, is_background, jobs, next_job_id):
 
 def main():
     jobs = {}  # job_id -> Job object
-    next_job_id =  1  
+    next_job_id = 1  
 
     while True:
         reap_zombies(jobs)
