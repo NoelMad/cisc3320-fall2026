@@ -1,4 +1,5 @@
 import argparse
+import csv
 
 class Process:
     def __init__(self, pid, arrival_time, burst_time, priority=0):
@@ -174,6 +175,37 @@ def simulate_mlfq(processes, num_queues=2, base_quantum=4, verbose=False):
     return compute_metrics(procs)
 
 
+# --- Unified Pluggable Dispatcher ---
+def schedule(processes, algo_name, quantum=2):
+    algo = algo_name.lower()
+    if algo == "fcfs":
+        return simulate_fcfs(processes)
+    elif algo == "sjf":
+        return simulate_sjf(processes)
+    elif algo == "rr":
+        return simulate_rr(processes, time_quantum=quantum)
+    elif algo == "priority":
+        return simulate_priority(processes)
+    elif algo == "mlfq":
+        return simulate_mlfq(processes, num_queues=2, base_quantum=4, verbose=False)
+    else:
+        raise ValueError(f"Unknown algorithm: {algo_name}")
+
+
+# --- CSV Loader ---
+def load_workload_from_csv(file_path):
+    procs = []
+    with open(file_path, mode='r') as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            pid = row.get('pid', 'P1')
+            arrival = int(row.get('arrival_time', 0))
+            burst = int(row.get('burst_time', 1))
+            priority = int(row.get('priority', 0))
+            procs.append(Process(pid, arrival, burst, priority))
+    return procs
+
+
 # --- Detailed Table Printer ---
 def print_process_table(algo_name, processes):
     print(f"\nAlgorithm: {algo_name}")
@@ -193,13 +225,7 @@ def print_process_table(algo_name, processes):
 
 # --- Comparison Report Generator ---
 def generate_comparison_report(workload):
-    algorithms = {
-        "FCFS": simulate_fcfs(workload),
-        "SJF": simulate_sjf(workload),
-        "Round Robin": simulate_rr(workload, time_quantum=2),
-        "Priority": simulate_priority(workload),
-        "MLFQ": simulate_mlfq(workload, verbose=False)
-    }
+    algorithms = ["fcfs", "sjf", "rr", "priority", "mlfq"]
     
     print("=" * 65)
     print(f"{'Algorithm Comparison Report':^65}")
@@ -207,12 +233,13 @@ def generate_comparison_report(workload):
     print(f"{'Algorithm':<15}{'Avg Waiting Time':<20}{'Avg Turnaround':<20}{'Avg Response'}")
     print("-" * 65)
     
-    for name, result_procs in algorithms.items():
+    for name in algorithms:
+        result_procs = schedule(workload, name)
         avg_wt = sum(p.waiting_time for p in result_procs) / len(result_procs)
         avg_tat = sum(p.turnaround_time for p in result_procs) / len(result_procs)
         avg_rt = sum(p.response_time for p in result_procs) / len(result_procs)
         
-        print(f"{name:<15}{avg_wt:<20.2f}{avg_tat:<20.2f}{avg_rt:<.2f}")
+        print(f"{name.upper():<15}{avg_wt:<20.2f}{avg_tat:<20.2f}{avg_rt:<.2f}")
     print("=" * 65)
 
 
@@ -225,33 +252,25 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
 
-    lecture_workload = [
-        Process("P1", 0, 6, priority=1),
-        Process("P2", 0, 2, priority=3),
-        Process("P3", 0, 8, priority=2),
-        Process("P4", 0, 3, priority=3)
-    ]
+    # Load from CSV if specified, otherwise use default lecture workload
+    if args.workload:
+        workload = load_workload_from_csv(args.workload)
+    else:
+        workload = [
+            Process("P1", 0, 6, priority=1),
+            Process("P2", 0, 2, priority=3),
+            Process("P3", 0, 8, priority=2),
+            Process("P4", 0, 3, priority=3)
+        ]
     
     if args.algo:
         algo_name = args.algo.lower()
-        if algo_name == "fcfs":
-            res = simulate_fcfs(lecture_workload)
-            print_process_table(args.algo.upper(), res)
-        elif algo_name == "sjf":
-            res = simulate_sjf(lecture_workload)
-            print_process_table(args.algo.upper(), res)
-        elif algo_name == "rr":
-            res = simulate_rr(lecture_workload, time_quantum=args.quantum)
-            print_process_table(args.algo.upper(), res)
-        elif algo_name == "priority":
-            res = simulate_priority(lecture_workload)
-            print_process_table(args.algo.upper(), res)
-        elif algo_name == "mlfq":
-            simulate_mlfq(lecture_workload, num_queues=2, base_quantum=4, verbose=True)
+        if algo_name == "mlfq":
+            simulate_mlfq(workload, num_queues=2, base_quantum=4, verbose=True)
         else:
-            print(f"Unknown algorithm: {args.algo}")
-            exit(1)
+            res = schedule(workload, algo_name, quantum=args.quantum)
+            print_process_table(algo_name.upper(), res)
     elif args.compare:
-        generate_comparison_report(lecture_workload)
+        generate_comparison_report(workload)
     else:
-        generate_comparison_report(lecture_workload)
+        generate_comparison_report(workload)

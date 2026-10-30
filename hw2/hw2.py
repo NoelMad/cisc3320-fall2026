@@ -22,7 +22,7 @@ def reap_zombies(jobs):
             if pid == 0:
                 break
             
-            # Find the tracked job and change its status to Done instead of printing/deleting
+            # Find the tracked job and change its status to Done
             for job_id, job_obj in jobs.items():
                 if job_obj.pid == pid:
                     job_obj.status = "Done"
@@ -75,13 +75,20 @@ def handle_builtin(tokens, jobs):
         except Exception as e:
             print(f"cd error: {e}")
 
-    # 3. jobs
+    # 3. jobs (with automatic cleanup of finished entries)
     elif command == "jobs":
         if not jobs:
             print("No active background jobs.")
         else:
+            completed_keys = []
             for job_id, job_obj in jobs.items():
                 print(f"[{job_id}]  {job_obj.status}         {job_obj.command}")
+                if job_obj.status == "Done":
+                    completed_keys.append(job_id)
+            
+            # Remove completed jobs from the table after displaying them
+            for job_id in completed_keys:
+                del jobs[job_id]
 
     # 4. fg
     elif command == "fg":
@@ -111,7 +118,6 @@ def handle_builtin(tokens, jobs):
         except ProcessLookupError:
             pass
 
-        # Remove from dictionary since it's back in the foreground
         del jobs[job_id]
         
         try:
@@ -163,6 +169,8 @@ def run_external_command(tokens, is_background, jobs, next_job_id):
         if pid == 0:
             # Child process
             try:
+                # Isolate process group to prevent signal bleed from shell
+                os.setpgid(0, 0)
                 os.execvp(tokens[0], tokens)
             except FileNotFoundError:
                 print(f"myshell: command not found: {tokens[0]}")
@@ -174,11 +182,13 @@ def run_external_command(tokens, is_background, jobs, next_job_id):
         elif pid > 0:
             # Parent process
             if not is_background:
-                os.waitpid(pid, 0)
+                try:
+                    os.waitpid(pid, 0)
+                except ChildProcessError:
+                    pass  # Gracefully handle race condition if reaped concurrently
             else:
                 cmd_str = " ".join(tokens)
                 jobs[next_job_id] = Job(pid, cmd_str, background=True)
-                # Match the slide format: [job_id] pid command
                 print(f"[{next_job_id}] {pid} {cmd_str}")
                 next_job_id += 1
         else:
@@ -192,7 +202,7 @@ def run_external_command(tokens, is_background, jobs, next_job_id):
 
 def main():
     jobs = {}  # job_id -> Job object
-    next_job_id = 1  
+    next_job_id =  1  
 
     while True:
         reap_zombies(jobs)
