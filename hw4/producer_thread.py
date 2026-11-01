@@ -3,13 +3,19 @@ import queue
 import time
 import random
 
-BUFFER_SIZE = 5
+# Checklist: Use a tiny buffer (capacity 1 or 2)
+BUFFER_SIZE = 2
 buffer_queue = queue.Queue(maxsize=BUFFER_SIZE)
+
+# Checklist: Run with 1 and 1 first, then change these to 3 and 3
+NUM_PRODUCERS = 3  
+NUM_CONSUMERS = 3  
+ITEMS_PER_PRODUCER = 5
 
 def producer(producer_id, items_to_produce):
     for i in range(items_to_produce):
         item = f"Data-{producer_id}-{i}"
-        buffer_queue.put(item)  # Atomic & thread-safe: blocks safely if full
+        buffer_queue.put(item)  # Blocks safely if full
         print(f"[producer {producer_id}] produced item {i} \t buffer size: {buffer_queue.qsize()}")
         time.sleep(random.uniform(0.1, 0.3))
 
@@ -25,18 +31,35 @@ def consumer(consumer_id):
         time.sleep(random.uniform(0.2, 0.4))
 
 if __name__ == "__main__":
-    p1 = threading.Thread(target=producer, args=(1, 5))
-    p2 = threading.Thread(target=producer, args=(2, 5))
-    c1 = threading.Thread(target=consumer, args=(1,))
-    c2 = threading.Thread(target=consumer, args=(2,))
+    producers = []
+    consumers = []
 
-    p1.start(); p2.start(); c1.start(); c2.start()
+    # Dynamically create producers
+    for i in range(1, NUM_PRODUCERS + 1):
+        p = threading.Thread(target=producer, args=(i, ITEMS_PER_PRODUCER))
+        producers.append(p)
 
-    p1.join(); p2.join()
+    # Dynamically create consumers
+    for i in range(1, NUM_CONSUMERS + 1):
+        c = threading.Thread(target=consumer, args=(i,))
+        consumers.append(c)
+
+    # Start all threads
+    for p in producers:
+        p.start()
+    for c in consumers:
+        c.start()
+
+    # Wait for producers to finish
+    for p in producers:
+        p.join()
     print("all producers finished")
 
-    buffer_queue.put(None)
-    buffer_queue.put(None)
+    # Send a stop signal (None) for each consumer
+    for _ in range(NUM_CONSUMERS):
+        buffer_queue.put(None)
 
-    c1.join(); c2.join()
+    # Wait for consumers to finish
+    for c in consumers:
+        c.join()
     print("all consumers finished, 0 items left")
